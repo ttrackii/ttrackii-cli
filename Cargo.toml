@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Cross-platform command-line client for ttrackii"
-authors = ["ttrackii <support@ttrackii.com>"]
+authors = ["ttrackii <hello@ttrackii.com>"]
 license = "MIT"
 repository = "https://github.com/ttrackii/cli"
 homepage = "https://ttrackii.com"
@@ -36,13 +36,14 @@ wiremock = "0.6"
 
 [package.metadata.deb]
 name = "ttrackii"
-maintainer = "ttrackii <support@ttrackii.com>"
+maintainer = "ttrackii <hello@ttrackii.com>"
 section = "utils"
 priority = "optional"
 assets = [
     ["target/release/ttrackii", "usr/bin/", "755"],
     ["README.md", "usr/share/doc/ttrackii/README.md", "644"],
     ["LICENSE", "usr/share/doc/ttrackii/LICENSE", "644"],
+    ["THIRD_PARTY_LICENSES.md", "usr/share/doc/ttrackii/THIRD_PARTY_LICENSES.md", "644"],
 ]
 
 [package.metadata.generate-rpm]
@@ -52,6 +53,7 @@ assets = [
     { source = "target/release/ttrackii", dest = "/usr/bin/ttrackii", mode = "755" },
     { source = "README.md", dest = "/usr/share/doc/ttrackii/README.md", mode = "644", doc = true },
     { source = "LICENSE", dest = "/usr/share/licenses/ttrackii/LICENSE", mode = "644", doc = true },
+    { source = "THIRD_PARTY_LICENSES.md", dest = "/usr/share/licenses/ttrackii/THIRD_PARTY_LICENSES.md", mode = "644", doc = true },
 ]
 
 [package.metadata.wix]
@@ -64,6 +66,10 @@ eula = false
 lto = "thin"
 strip = "symbols"
 codegen-units = 1
+
+# cargo-dist builds release artifacts with this profile.
+[profile.dist]
+inherits = "release"
 
 [lints.rust]
 unsafe_code = "forbid"
