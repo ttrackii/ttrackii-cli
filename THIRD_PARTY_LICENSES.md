@@ -3371,7 +3371,7 @@ SOFTWARE.
 
 Used by:
 
-- [ttrackii-cli 0.1.0](https://github.com/ttrackii/cli)
+- [ttrackii-cli 0.1.0](https://github.com/ttrackii/ttrackii-cli)
 
 ```text
 MIT License

@@ -16,14 +16,14 @@ brew install ttrackii/tap/ttrackii
 Or use the install script:
 
 ```shell
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/ttrackii/cli/releases/latest/download/ttrackii-cli-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/ttrackii/ttrackii-cli/releases/latest/download/ttrackii-cli-installer.sh | sh
 ```
 
 On Windows, run the PowerShell installer, or download the `.msi` from the
-[latest release](https://github.com/ttrackii/cli/releases/latest):
+[latest release](https://github.com/ttrackii/ttrackii-cli/releases/latest):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/ttrackii/cli/releases/latest/download/ttrackii-cli-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/ttrackii/ttrackii-cli/releases/latest/download/ttrackii-cli-installer.ps1 | iex"
 ```
 
 Windows builds are not code-signed yet, so SmartScreen may ask you to confirm
