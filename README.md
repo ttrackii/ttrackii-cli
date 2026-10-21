@@ -70,7 +70,8 @@ ttrackii workspace use my-team
 
 # Timers
 ttrackii start "Client kickoff"
-ttrackii start "Landing page" --workspace my-team --project Website
+ttrackii start "Fix login @website #bug #urgent"   # @project and #tags, as in the web app
+ttrackii start "Landing page" --workspace my-team --project Website --tag design
 ttrackii status
 ttrackii stop
 
@@ -82,6 +83,12 @@ ttrackii report --from 2026-07-01 --to 2026-07-31
 ttrackii report --workspace my-team --all-members
 ttrackii report --period last-month --summary   # totals only, no entry list
 ```
+
+In the task, `@name` picks a project and is removed from the task name; `#name`
+links a tag and stays in it, as in the web app. Write spaces in names as
+hyphens (`@client-work`); case doesn't matter, and tokens that match nothing stay
+plain text. Quote the task when it contains `#`, because bash treats an unquoted
+`#word` as a comment.
 
 Every authenticated command accepts `--json` for machine-readable output.
 `--no-color` and the standard `NO_COLOR` environment variable disable color.

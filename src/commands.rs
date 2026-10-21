@@ -190,35 +190,32 @@ async fn start(
             workspace.name
         )));
     }
-    if workspace.kind == WorkspaceKind::Team && args.project.is_none() {
-        return Err(CliError::InvalidInput(
-            "team timers require --project <name-or-id>".into(),
-        ));
-    }
     let resources = api.resources(&workspace.id).await?;
-    let project_id =
-        resolve_optional_resource(&resources.projects, args.project.as_deref(), "project")?;
-    let tag_id = resolve_optional_resource(&resources.tags, args.tag.as_deref(), "tag")?;
-    if let (Some(project_id), Some(group_id)) = (&project_id, &tag_id) {
-        let group = resources
+    let selection = resolve_start_selection(&args, &resources.projects, &resources.tags)?;
+    for warning in &selection.warnings {
+        eprintln!("Warning: {warning}");
+    }
+    let tag_implies_project = selection.tag_ids.iter().any(|id| {
+        resources
             .tags
             .iter()
-            .find(|group| &group.id == group_id)
-            .expect("resolved group must exist");
-        if let Some(group_project_id) = &group.project_id {
-            if group_project_id != project_id {
-                return Err(CliError::InvalidInput(
-                    "the selected tag belongs to a different project".into(),
-                ));
-            }
-        }
+            .any(|tag| &tag.id == id && tag.project_id.is_some())
+    });
+    if workspace.kind == WorkspaceKind::Team
+        && selection.project_id.is_none()
+        && !tag_implies_project
+    {
+        return Err(CliError::InvalidInput(
+            "team timers need a project: add @project to the task or use --project <name-or-id>"
+                .into(),
+        ));
     }
     let timer = api
         .start_timer(&StartTimerRequest {
             workspace_id: workspace.id.clone(),
-            task_name: args.task.unwrap_or_default(),
-            project_id,
-            tag_id,
+            task_name: selection.task_name,
+            project_id: selection.project_id,
+            tag_ids: selection.tag_ids,
         })
         .await?;
     if json {
@@ -373,23 +370,181 @@ fn resolve_workspace<'a>(workspaces: &'a [Workspace], identifier: &str) -> Resul
     unique_match(&matches, "workspace", identifier)
 }
 
-fn resolve_optional_resource(
-    resources: &[Resource],
-    identifier: Option<&str>,
-    label: &str,
-) -> Result<Option<String>> {
-    let Some(identifier) = identifier else {
-        return Ok(None);
+/// What `start` sends after reading flags and the task text.
+#[derive(Debug, PartialEq, Eq)]
+struct StartSelection {
+    task_name: String,
+    project_id: Option<String>,
+    tag_ids: Vec<String>,
+    /// Projects and tags that don't exist; the timer starts without them.
+    warnings: Vec<String>,
+}
+
+/// Combines `--project`/`--tag` with `@project` and `#tag` in the task, as the web
+/// timer does: `@project` is removed from the name, `#tag` stays in it (the web
+/// shows it as a badge). Names that don't exist produce a warning and are skipped;
+/// an unknown token stays in the name as typed.
+fn resolve_start_selection(
+    args: &StartArgs,
+    projects: &[Resource],
+    tags: &[Resource],
+) -> Result<StartSelection> {
+    let task = args.task.join(" ");
+    let mut kept: Vec<String> = Vec::new();
+    let mut mentioned_project: Option<&Resource> = None;
+    let mut hashtag_ids = Vec::new();
+    let mut removed_any = false;
+    let mut warnings = Vec::new();
+    for word in task.split_whitespace() {
+        let mut chars = word.chars();
+        let sigil = chars.next();
+        let rest = chars.as_str();
+        let token_len = rest
+            .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '-'))
+            .unwrap_or(rest.len());
+        let (token, trailing) = rest.split_at(token_len);
+        match sigil {
+            Some('@') if !token.is_empty() => {
+                if let Some(project) = match_token(projects, token, "project")? {
+                    if mentioned_project.is_some_and(|other| other.id != project.id) {
+                        return Err(CliError::InvalidInput(
+                            "the task mentions more than one @project".into(),
+                        ));
+                    }
+                    mentioned_project = Some(project);
+                    removed_any = true;
+                    // Keep punctuation after the token: "fix @site, then" -> "fix, then".
+                    match kept.last_mut() {
+                        Some(previous) if !trailing.is_empty() => previous.push_str(trailing),
+                        _ if !trailing.is_empty() => kept.push(trailing.to_string()),
+                        _ => {}
+                    }
+                    continue;
+                }
+                warnings.push(format!("no project named @{token}; starting without it"));
+            }
+            Some('#') if !token.is_empty() => {
+                if let Some(tag) = match_token(tags, token, "tag")? {
+                    hashtag_ids.push(tag.id.clone());
+                } else {
+                    warnings.push(format!("no tag named #{token}; starting without it"));
+                }
+            }
+            _ => {}
+        }
+        kept.push(word.to_string());
+    }
+    let task_name = if removed_any {
+        kept.join(" ")
+    } else {
+        task.trim().to_string()
     };
+
+    let mut flag_project = None;
+    if let Some(identifier) = args.project.as_deref() {
+        flag_project = find_resource(projects, identifier, "project")?.map(|p| p.id.clone());
+        if flag_project.is_none() {
+            warnings.push(format!(
+                "no project named {identifier:?}; starting without it"
+            ));
+        }
+    }
+    let project_id = match (flag_project, mentioned_project) {
+        (Some(flag), Some(mentioned)) if flag != mentioned.id => {
+            return Err(CliError::InvalidInput(format!(
+                "--project and @{} in the task name point to different projects",
+                token_key(&mentioned.name)
+            )));
+        }
+        (flag, mentioned) => flag.or_else(|| mentioned.map(|project| project.id.clone())),
+    };
+
+    let mut tag_ids: Vec<String> = Vec::new();
+    for identifier in &args.tag {
+        match find_resource(tags, identifier, "tag")? {
+            Some(tag) if !tag_ids.contains(&tag.id) => tag_ids.push(tag.id.clone()),
+            Some(_) => {}
+            None => warnings.push(format!("no tag named {identifier:?}; starting without it")),
+        }
+    }
+    for id in hashtag_ids {
+        if !tag_ids.contains(&id) {
+            tag_ids.push(id);
+        }
+    }
+    if let Some(project_id) = &project_id {
+        for id in &tag_ids {
+            let tag = tags.iter().find(|tag| &tag.id == id);
+            if let Some(tag) =
+                tag.filter(|tag| tag.project_id.as_ref().is_some_and(|p| p != project_id))
+            {
+                return Err(CliError::InvalidInput(format!(
+                    "tag {:?} belongs to a different project",
+                    tag.name
+                )));
+            }
+        }
+    }
+    Ok(StartSelection {
+        task_name,
+        project_id,
+        tag_ids,
+        warnings,
+    })
+}
+
+/// A `--project`/`--tag` value by ID or exact name (case-insensitive); `None` when
+/// nothing matches, an error when the name is ambiguous.
+fn find_resource<'a>(
+    resources: &'a [Resource],
+    identifier: &str,
+    label: &str,
+) -> Result<Option<&'a Resource>> {
     if let Some(exact) = resources.iter().find(|resource| resource.id == identifier) {
-        return Ok(Some(exact.id.clone()));
+        return Ok(Some(exact));
     }
     let needle = identifier.trim().to_lowercase();
     let matches = resources
         .iter()
         .filter(|resource| resource.name.to_lowercase() == needle)
         .collect::<Vec<_>>();
-    unique_match(&matches, label, identifier).map(|resource| Some(resource.id.clone()))
+    if matches.is_empty() {
+        return Ok(None);
+    }
+    unique_match(&matches, label, identifier).map(Some)
+}
+
+/// How a name is written after `@` or `#`: spaces become hyphens, case is ignored.
+fn token_key(name: &str) -> String {
+    name.split_whitespace()
+        .collect::<Vec<_>>()
+        .join("-")
+        .to_lowercase()
+}
+
+/// The single resource a `@`/`#` token names, `None` when nothing matches (the
+/// token is then ordinary text), or an error when the name is ambiguous.
+fn match_token<'a>(
+    resources: &'a [Resource],
+    token: &str,
+    label: &str,
+) -> Result<Option<&'a Resource>> {
+    let key = token.to_lowercase();
+    let matches = resources
+        .iter()
+        .filter(|resource| token_key(&resource.name) == key)
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [] => Ok(None),
+        [single] => Ok(Some(*single)),
+        many => Err(CliError::InvalidInput(format!(
+            "{token:?} matches multiple {label}s: {}",
+            many.iter()
+                .map(|item| item.identifier())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))),
+    }
 }
 
 fn unique_match<'a, T: Identified>(
@@ -583,5 +738,144 @@ mod tests {
             stop(&api, true).await,
             Err(CliError::Api { status, .. }) if status == StatusCode::INTERNAL_SERVER_ERROR
         ));
+    }
+
+    fn resource(id: &str, name: &str, project_id: Option<&str>) -> Resource {
+        Resource {
+            id: id.into(),
+            name: name.into(),
+            project_id: project_id.map(Into::into),
+        }
+    }
+
+    fn start_args(task: &str, project: Option<&str>, tags: &[&str]) -> StartArgs {
+        StartArgs {
+            task: task.split(' ').map(Into::into).collect(),
+            project: project.map(Into::into),
+            tag: tags.iter().map(|tag| (*tag).into()).collect(),
+            workspace: None,
+        }
+    }
+
+    fn fixtures() -> (Vec<Resource>, Vec<Resource>) {
+        let projects = vec![
+            resource("p-site", "Website", None),
+            resource("p-client", "Client Work", None),
+            resource("p-other", "Other", None),
+        ];
+        let tags = vec![
+            resource("t-bug", "bug", None),
+            resource("t-urgent", "Urgent", None),
+            resource("t-client", "Ügyfél", None),
+            resource("t-other", "infra", Some("p-other")),
+        ];
+        (projects, tags)
+    }
+
+    fn select(task: &str, project: Option<&str>, tags: &[&str]) -> Result<StartSelection> {
+        let (projects, all_tags) = fixtures();
+        resolve_start_selection(&start_args(task, project, tags), &projects, &all_tags)
+    }
+
+    #[test]
+    fn task_tokens_pick_project_and_tags_like_the_web_timer() {
+        assert_eq!(
+            select("Fix login @website #bug #Urgent", None, &[]).unwrap(),
+            StartSelection {
+                task_name: "Fix login #bug #Urgent".into(),
+                project_id: Some("p-site".into()),
+                tag_ids: vec!["t-bug".into(), "t-urgent".into()],
+                warnings: vec![],
+            }
+        );
+        // Spaces in names are written as hyphens; non-ASCII names work too.
+        let selection = select("Review @client-work #ügyfél", None, &[]).unwrap();
+        assert_eq!(selection.project_id.as_deref(), Some("p-client"));
+        assert_eq!(selection.tag_ids, vec!["t-client".to_string()]);
+        assert_eq!(selection.task_name, "Review #ügyfél");
+    }
+
+    #[test]
+    fn unknown_names_warn_and_start_without_them() {
+        assert_eq!(
+            select("Reply to @anna about #42  today", None, &[]).unwrap(),
+            StartSelection {
+                task_name: "Reply to @anna about #42  today".into(),
+                project_id: None,
+                tag_ids: vec![],
+                warnings: vec![
+                    "no project named @anna; starting without it".into(),
+                    "no tag named #42; starting without it".into(),
+                ],
+            }
+        );
+        let flags = select("Ship #bug", Some("Missing"), &["nope", "urgent"]).unwrap();
+        assert_eq!(flags.project_id, None);
+        assert_eq!(
+            flags.tag_ids,
+            vec!["t-urgent".to_string(), "t-bug".to_string()]
+        );
+        assert_eq!(
+            flags.warnings,
+            vec![
+                "no project named \"Missing\"; starting without it".to_string(),
+                "no tag named \"nope\"; starting without it".to_string(),
+            ]
+        );
+        assert_eq!(
+            select("Deploy @website, then rest", None, &[])
+                .unwrap()
+                .task_name,
+            "Deploy, then rest"
+        );
+        assert_eq!(
+            select("email@website.com", None, &[]).unwrap().project_id,
+            None
+        );
+    }
+
+    #[test]
+    fn flags_combine_with_tokens() {
+        let selection = select("Triage #bug", Some("Website"), &["urgent", "bug"]).unwrap();
+        assert_eq!(selection.project_id.as_deref(), Some("p-site"));
+        assert_eq!(
+            selection.tag_ids,
+            vec!["t-urgent".to_string(), "t-bug".to_string()]
+        );
+        assert_eq!(
+            select("Ship @website", Some("website"), &[])
+                .unwrap()
+                .project_id
+                .as_deref(),
+            Some("p-site")
+        );
+    }
+
+    #[test]
+    fn conflicting_projects_and_tags_are_refused() {
+        assert!(select("Ship @website", Some("Other"), &[]).is_err());
+        assert!(select("Ship @website @other", None, &[]).is_err());
+        assert!(select("Ship @website #infra", None, &[]).is_err());
+    }
+
+    #[test]
+    fn start_request_sends_ordered_tag_ids() {
+        let body = |tag_ids: Vec<String>| {
+            serde_json::to_value(StartTimerRequest {
+                workspace_id: "personal".into(),
+                task_name: "Fix #bug".into(),
+                project_id: None,
+                tag_ids,
+            })
+            .unwrap()
+        };
+        assert_eq!(
+            body(vec!["t-urgent".into(), "t-bug".into()]),
+            serde_json::json!({ "workspaceId": "personal", "taskName": "Fix #bug", "tagIds": ["t-urgent", "t-bug"] })
+        );
+        assert_eq!(
+            body(vec![]),
+            serde_json::json!({ "workspaceId": "personal", "taskName": "Fix #bug" })
+        );
     }
 }

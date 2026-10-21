@@ -80,6 +80,11 @@ pub struct TimerEntry {
     pub tag_id: Option<String>,
     #[serde(default, alias = "taskGroupName")]
     pub tag_name: Option<String>,
+    /// Every tag in order; `tag_id`/`tag_name` hold only the first.
+    #[serde(default)]
+    pub tag_ids: Vec<String>,
+    #[serde(default)]
+    pub tag_names: Vec<String>,
     #[serde(default)]
     pub start_time: i64,
     #[serde(default)]
@@ -109,8 +114,9 @@ pub struct StartTimerRequest {
     pub task_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tag_id: Option<String>,
+    /// Ordered; the server allows up to 20.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tag_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,6 +186,9 @@ pub struct ReportEntry {
     pub project_name: Option<String>,
     #[serde(default, alias = "taskGroupName")]
     pub tag_name: Option<String>,
+    /// Every tag in order; `tag_name` holds only the first.
+    #[serde(default)]
+    pub tag_names: Vec<String>,
     #[serde(default)]
     pub is_billable: bool,
     #[serde(default)]

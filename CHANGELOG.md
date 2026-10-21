@@ -8,7 +8,8 @@ First public release.
 - `ttrackii logout` revokes the session and removes the stored credential.
 - `ttrackii whoami` shows the signed-in account.
 - `ttrackii workspace list` and `ttrackii workspace use <workspace>` list workspaces and set the default one.
-- `ttrackii start`, `ttrackii stop`, and `ttrackii status` control the timer, with optional `--project`, `--tag`, and `--workspace`. Starting a timer stops the one already running.
+- `ttrackii start`, `ttrackii stop`, and `ttrackii status` control the timer, with optional `--project`, `--tag` (repeatable), and `--workspace`. Starting a timer stops the one already running.
+- `ttrackii start "Fix login @website #bug"` picks the project and tags from the task, as the web app does: `@project` is removed from the name, `#tag` stays in it, and tokens that match nothing stay plain text.
 - `ttrackii report` shows totals, per-project and per-tag breakdowns, and entries for `today`, `this-week` (the default), `last-week`, `this-month`, `last-month`, `quarter`, `year`, or a `--from`/`--to` range. `--summary` leaves out the entry list; `--all-members` includes the whole team for workspace admins.
 - Every command accepts `--json` for stable machine-readable output. `--no-color` and `NO_COLOR` turn off color.
 - `TTRACKII_TOKEN` accepts an API key or CLI session for scripts and CI.

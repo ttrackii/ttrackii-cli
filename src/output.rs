@@ -83,8 +83,14 @@ pub fn timer_status(timer: &TimerResponse) {
     if let Some(project) = &entry.project_name {
         println!("{} {project}", paint("2", "Project:"));
     }
-    if let Some(group) = &entry.tag_name {
-        println!("{} {group}", paint("2", "Tag:"));
+    match entry.tag_names.as_slice() {
+        [] => {
+            if let Some(tag) = &entry.tag_name {
+                println!("{} {tag}", paint("2", "Tag:"));
+            }
+        }
+        [tag] => println!("{} {tag}", paint("2", "Tag:")),
+        tags => println!("{} {}", paint("2", "Tags:"), tags.join(", ")),
     }
     println!(
         "{} {}",

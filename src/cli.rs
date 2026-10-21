@@ -62,16 +62,19 @@ pub enum WorkspaceCommand {
 
 #[derive(Debug, Args)]
 pub struct StartArgs {
-    /// Description for the timer.
-    pub task: Option<String>,
+    /// Description for the timer. `@project` picks a project and `#tag` links a
+    /// tag, as in the web app; quote it if it contains `#` (bash treats an
+    /// unquoted `#word` as a comment).
+    #[arg(num_args = 0.., value_name = "TASK")]
+    pub task: Vec<String>,
 
     /// Project name or ID.
     #[arg(long)]
     pub project: Option<String>,
 
-    /// Tag name or ID.
+    /// Tag name or ID. Repeat for several tags.
     #[arg(long)]
-    pub tag: Option<String>,
+    pub tag: Vec<String>,
 
     /// Workspace name, slug, ID, or "personal".
     #[arg(long)]
