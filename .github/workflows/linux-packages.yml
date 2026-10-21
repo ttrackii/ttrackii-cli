@@ -1,0 +1,69 @@
+name: Linux packages
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        description: cargo-dist release plan
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: ${{ matrix.deb_arch }} packages
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            deb_arch: amd64
+            rpm_arch: x86_64
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            deb_arch: arm64
+            rpm_arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    env:
+      DIST_PLAN: ${{ inputs.plan }}
+      TARGET: ${{ matrix.target }}
+      DEB_ARCH: ${{ matrix.deb_arch }}
+      RPM_ARCH: ${{ matrix.rpm_arch }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: linux-packages-${{ matrix.target }}
+      - name: Install packaging tools
+        run: cargo install --locked cargo-deb@3.7.0 cargo-generate-rpm@0.21.0
+      - name: Build release binary
+        run: cargo build --locked --release --target "$TARGET"
+      - name: Build Debian and RPM packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(jq -r '.releases[] | select(.app_name == "ttrackii-cli") | .app_version' <<< "$DIST_PLAN")"
+          test -n "$version"
+          mkdir -p target/distrib
+          cargo deb --no-build --no-strip --target "$TARGET" --output "target/distrib/ttrackii_${version}_${DEB_ARCH}.deb"
+          cargo generate-rpm --target "$TARGET" --output "target/distrib/ttrackii-${version}-1.${RPM_ARCH}.rpm"
+          cd target/distrib
+          sha256sum ./*.deb ./*.rpm > "ttrackii-${version}-${RPM_ARCH}-packages.sha256"
+      - name: Upload packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: artifacts-linux-packages-${{ matrix.target }}
+          path: |
+            target/distrib/*.deb
+            target/distrib/*.rpm
+            target/distrib/*-packages.sha256
+          if-no-files-found: error

@@ -1,0 +1,73 @@
+[package]
+name = "ttrackii-cli"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Cross-platform command-line client for ttrackii"
+authors = ["ttrackii <support@ttrackii.com>"]
+license = "MIT"
+repository = "https://github.com/ttrackii/cli"
+homepage = "https://ttrackii.com"
+readme = "README.md"
+keywords = ["time-tracking", "cli", "productivity"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "ttrackii"
+path = "src/main.rs"
+
+[dependencies]
+chrono = { version = "0.4", features = ["clock", "serde"] }
+clap = { version = "4.5", features = ["derive", "env", "wrap_help"] }
+directories = "6"
+keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust", "vendored"] }
+open = "5"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+toml = "0.8"
+url = "2"
+
+[dev-dependencies]
+tempfile = "3"
+wiremock = "0.6"
+
+[package.metadata.deb]
+name = "ttrackii"
+maintainer = "ttrackii <support@ttrackii.com>"
+section = "utils"
+priority = "optional"
+assets = [
+    ["target/release/ttrackii", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/ttrackii/README.md", "644"],
+    ["LICENSE", "usr/share/doc/ttrackii/LICENSE", "644"],
+]
+
+[package.metadata.generate-rpm]
+name = "ttrackii"
+release = "1"
+assets = [
+    { source = "target/release/ttrackii", dest = "/usr/bin/ttrackii", mode = "755" },
+    { source = "README.md", dest = "/usr/share/doc/ttrackii/README.md", mode = "644", doc = true },
+    { source = "LICENSE", dest = "/usr/share/licenses/ttrackii/LICENSE", mode = "644", doc = true },
+]
+
+[package.metadata.wix]
+upgrade-guid = "85A78A2D-7FFF-450E-8720-0A90A9FE0404"
+path-guid = "76848D8A-D348-4847-A52E-59681FC88203"
+license = false
+eula = false
+
+[profile.release]
+lto = "thin"
+strip = "symbols"
+codegen-units = 1
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
